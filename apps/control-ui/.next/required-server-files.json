@@ -293,8 +293,8 @@
       "root": "/Users/xurongyu"
     }
   },
-  "appDir": "/Users/xurongyu/openclawv0app/apps/control-ui",
-  "relativeAppDir": "openclawv0app/apps/control-ui",
+  "appDir": "/Users/xurongyu/myclaw/apps/control-ui",
+  "relativeAppDir": "myclaw/apps/control-ui",
   "files": [
     ".next/routes-manifest.json",
     ".next/server/pages-manifest.json",
