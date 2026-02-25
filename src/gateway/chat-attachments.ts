@@ -1,3 +1,12 @@
+import {
+  DEFAULT_INPUT_FILE_MAX_CHARS,
+  DEFAULT_INPUT_FILE_MIMES,
+  DEFAULT_INPUT_PDF_MAX_PAGES,
+  DEFAULT_INPUT_PDF_MAX_PIXELS,
+  DEFAULT_INPUT_PDF_MIN_TEXT_CHARS,
+  extractFileContentFromSource,
+  normalizeMimeList,
+} from "../media/input-files.js";
 import { detectMime } from "../media/mime.js";
 
 export type ChatAttachment = {
@@ -21,6 +30,15 @@ export type ParsedMessageWithImages = {
 type AttachmentLog = {
   warn: (message: string) => void;
 };
+
+const CHAT_DOCUMENT_MIMES = [
+  "application/pdf",
+  "text/plain",
+  "text/markdown",
+  "text/html",
+  "text/csv",
+  "application/json",
+];
 
 function normalizeMime(mime?: string): string | undefined {
   if (!mime) {
@@ -55,22 +73,25 @@ function isImageMime(mime?: string): boolean {
 }
 
 /**
- * Parse attachments and extract images as structured content blocks.
- * Returns the message text and an array of image content blocks
- * compatible with Claude API's image format.
+ * Parse attachments: images become vision content; PDF/text documents are extracted
+ * and merged into the message text (and PDF pages as images when text is insufficient).
+ * Returns the message text and an array of image content blocks for the model.
  */
 export async function parseMessageWithAttachments(
   message: string,
   attachments: ChatAttachment[] | undefined,
-  opts?: { maxBytes?: number; log?: AttachmentLog },
+  opts?: { maxBytes?: number; maxChars?: number; log?: AttachmentLog },
 ): Promise<ParsedMessageWithImages> {
-  const maxBytes = opts?.maxBytes ?? 5_000_000; // decoded bytes (5,000,000)
+  const maxBytes = opts?.maxBytes ?? 5_000_000; // decoded bytes (5 MB)
+  const maxChars = opts?.maxChars ?? 200_000;
   const log = opts?.log;
   if (!attachments || attachments.length === 0) {
     return { message, images: [] };
   }
 
+  const allowedDocMimes = normalizeMimeList(CHAT_DOCUMENT_MIMES, CHAT_DOCUMENT_MIMES);
   const images: ChatImageContent[] = [];
+  const docBlocks: string[] = [];
 
   for (const [idx, att] of attachments.entries()) {
     if (!att) {
@@ -84,17 +105,15 @@ export async function parseMessageWithAttachments(
       throw new Error(`attachment ${label}: content must be base64 string`);
     }
 
-    let sizeBytes = 0;
     let b64 = content.trim();
-    // Strip data URL prefix if present (e.g., "data:image/jpeg;base64,...")
     const dataUrlMatch = /^data:[^;]+;base64,(.*)$/.exec(b64);
     if (dataUrlMatch) {
       b64 = dataUrlMatch[1];
     }
-    // Basic base64 sanity: length multiple of 4 and charset check.
     if (b64.length % 4 !== 0 || /[^A-Za-z0-9+/=]/.test(b64)) {
       throw new Error(`attachment ${label}: invalid base64 content`);
     }
+    let sizeBytes = 0;
     try {
       sizeBytes = Buffer.from(b64, "base64").byteLength;
     } catch {
@@ -106,28 +125,78 @@ export async function parseMessageWithAttachments(
 
     const providedMime = normalizeMime(mime);
     const sniffedMime = normalizeMime(await sniffMimeFromBase64(b64));
-    if (sniffedMime && !isImageMime(sniffedMime)) {
-      log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), dropping`);
+
+    // Image: add to vision content
+    const effectiveImageMime = sniffedMime ?? providedMime;
+    if (isImageMime(sniffedMime) || isImageMime(providedMime)) {
+      if (sniffedMime && !isImageMime(sniffedMime)) {
+        log?.warn(`attachment ${label}: detected non-image (${sniffedMime}), dropping`);
+        continue;
+      }
+      if (!sniffedMime && !isImageMime(providedMime)) {
+        log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
+        continue;
+      }
+      if (sniffedMime && providedMime && sniffedMime !== providedMime) {
+        log?.warn(
+          `attachment ${label}: mime mismatch (${providedMime} -> ${sniffedMime}), using sniffed`,
+        );
+      }
+      images.push({
+        type: "image",
+        data: b64,
+        mimeType: effectiveImageMime ?? providedMime ?? mime,
+      });
       continue;
-    }
-    if (!sniffedMime && !isImageMime(providedMime)) {
-      log?.warn(`attachment ${label}: unable to detect image mime type, dropping`);
-      continue;
-    }
-    if (sniffedMime && providedMime && sniffedMime !== providedMime) {
-      log?.warn(
-        `attachment ${label}: mime mismatch (${providedMime} -> ${sniffedMime}), using sniffed`,
-      );
     }
 
-    images.push({
-      type: "image",
-      data: b64,
-      mimeType: sniffedMime ?? providedMime ?? mime,
-    });
+    // Document (PDF, text, etc.): extract and merge into message
+    const docMime = sniffedMime ?? providedMime;
+    if (!docMime || !allowedDocMimes.has(docMime)) {
+      log?.warn(`attachment ${label}: unsupported type (${docMime ?? "unknown"}), skipping`);
+      continue;
+    }
+
+    try {
+      const extracted = await extractFileContentFromSource({
+        source: {
+          type: "base64",
+          data: b64,
+          mediaType: docMime,
+          filename: typeof att.fileName === "string" ? att.fileName : label,
+        },
+        limits: {
+          allowUrl: false,
+          allowedMimes: allowedDocMimes,
+          maxBytes,
+          maxChars: maxChars,
+          maxRedirects: 0,
+          timeoutMs: 10_000,
+          pdf: {
+            maxPages: DEFAULT_INPUT_PDF_MAX_PAGES,
+            maxPixels: DEFAULT_INPUT_PDF_MAX_PIXELS,
+            minTextChars: DEFAULT_INPUT_PDF_MIN_TEXT_CHARS,
+          },
+        },
+      });
+
+      if (extracted.text?.trim()) {
+        const safeName = (extracted.filename ?? label).replace(/[\r\n\t]+/g, " ").trim();
+        docBlocks.push(`[文件: ${safeName}]\n${extracted.text.trim()}`);
+      }
+      if (extracted.images?.length) {
+        for (const img of extracted.images) {
+          images.push({ type: "image", data: img.data, mimeType: img.mimeType });
+        }
+      }
+    } catch (err) {
+      log?.warn(`attachment ${label}: extract failed: ${String(err)}`);
+    }
   }
 
-  return { message, images };
+  const combinedMessage =
+    docBlocks.length > 0 ? `${message.trim()}\n\n${docBlocks.join("\n\n")}`.trim() : message;
+  return { message: combinedMessage, images };
 }
 
 /**

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import type { GatewayRequestHandlers } from "./types.js";
 import {
@@ -199,7 +200,20 @@ export const agentsHandlers: GatewayRequestHandlers = {
 
     const cfg = loadConfig();
     const rawName = String(params.name ?? "").trim();
-    const agentId = normalizeAgentId(rawName);
+    let agentId = normalizeAgentId(rawName);
+    if (agentId === DEFAULT_AGENT_ID) {
+      if (rawName.toLowerCase() === "main") {
+        respond(
+          false,
+          undefined,
+          errorShape(ErrorCodes.INVALID_REQUEST, `"${DEFAULT_AGENT_ID}" is reserved`),
+        );
+        return;
+      }
+      if (rawName) {
+        agentId = `agent-${crypto.createHash("sha256").update(rawName, "utf8").digest("hex").slice(0, 16)}`;
+      }
+    }
     if (agentId === DEFAULT_AGENT_ID) {
       respond(
         false,

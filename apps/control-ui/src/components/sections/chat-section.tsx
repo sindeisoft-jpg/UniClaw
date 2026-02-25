@@ -35,6 +35,7 @@ import {
   ChevronDown,
   Sparkles,
   Square,
+  FileText,
 } from "lucide-react";
 
 function generateSessionId(): string {
@@ -85,25 +86,37 @@ function AttachmentPreview({
 
   return (
     <div className="flex flex-wrap gap-2">
-      {attachments.map((att) => (
-        <div key={att.id} className="relative group">
-          <div className="h-14 w-14 overflow-hidden rounded-lg border border-border">
-            <img
-              src={att.dataUrl}
-              alt="附件预览"
-              className="h-full w-full object-cover"
-            />
+      {attachments.map((att) => {
+        const isImage = att.mimeType.startsWith("image/");
+        return (
+          <div key={att.id} className="relative group">
+            <div className="h-14 w-14 overflow-hidden rounded-lg border border-border flex items-center justify-center bg-muted/50">
+              {isImage ? (
+                <img
+                  src={att.dataUrl}
+                  alt="附件预览"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <FileText className="h-6 w-6 text-muted-foreground shrink-0" />
+              )}
+            </div>
+            {!isImage && (
+              <span className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[10px] px-1 truncate text-center rounded-b-md">
+                {att.fileName ?? "文档"}
+              </span>
+            )}
+            <button
+              type="button"
+              className="absolute -right-1 -top-1 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+              onClick={() => onRemove(att.id)}
+              aria-label="移除附件"
+            >
+              <X className="h-3 w-3" />
+            </button>
           </div>
-          <button
-            type="button"
-            className="absolute -right-1 -top-1 rounded-full bg-destructive p-1 text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
-            onClick={() => onRemove(att.id)}
-            aria-label="移除附件"
-          >
-            <X className="h-3 w-3" />
-          </button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -129,7 +142,7 @@ function ChatQueue({
             <div className="truncate text-[15px]">
               {item.text ||
                 (item.attachments?.length
-                  ? `图片 (${item.attachments.length})`
+                  ? `附件 (${item.attachments.length})`
                   : "")}
             </div>
             <Button
@@ -672,25 +685,37 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
     const files = e.target.files;
     if (!files?.length) return;
 
-    const imageFiles = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (imageFiles.length === 0) {
+    const accepted = Array.from(files).filter((f) => {
+      const t = f.type.toLowerCase();
+      return (
+        t.startsWith("image/") ||
+        t === "application/pdf" ||
+        t === "text/plain" ||
+        t === "text/markdown" ||
+        t === "text/html" ||
+        t === "text/csv" ||
+        t === "application/json"
+      );
+    });
+    if (accepted.length === 0) {
       e.target.value = "";
       return;
     }
 
-    let pending = imageFiles.length;
+    let pending = accepted.length;
     const newAttachments: ChatAttachment[] = [];
-    
-    imageFiles.forEach((file) => {
+
+    accepted.forEach((file) => {
       const reader = new FileReader();
       reader.addEventListener("load", () => {
         newAttachments.push({
           id: generateAttachmentId(),
           dataUrl: reader.result as string,
-          mimeType: file.type,
+          mimeType: file.type || "application/octet-stream",
+          fileName: file.name,
         });
         if (--pending === 0) {
-          setAttachments(prev => [...prev, ...newAttachments]);
+          setAttachments((prev) => [...prev, ...newAttachments]);
           if (fileInputRef.current) {
             fileInputRef.current.value = "";
           }
@@ -730,10 +755,12 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
         ? attachments.map((att) => {
             const match = /^data:([^;]+);base64,(.+)$/.exec(att.dataUrl);
             const content = match ? match[2] : att.dataUrl;
+            const isImage = att.mimeType.startsWith("image/");
             return {
-              type: "image" as const,
+              type: (isImage ? "image" : "file") as "image" | "file",
               mimeType: att.mimeType,
               content,
+              ...(att.fileName ? { fileName: att.fileName } : {}),
             };
           })
         : undefined;
@@ -759,7 +786,7 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
   }, [client, connected, input, attachments, sending, sessionKey, showThinking]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       handleSend();
     }
@@ -892,8 +919,8 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
   const isBusy = sending || stream !== null;
   const composePlaceholder = connected
     ? hasAttachments
-      ? "输入消息或继续粘贴图片…"
-      : "尽管问，带图也行"
+      ? "输入消息或继续添加附件…"
+      : "尽管问，可上传图片、PDF、文档"
     : "连接网关后即可开始聊天。";
 
   if (!connected) {
@@ -987,7 +1014,7 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
                   <input
                     type="file"
                     ref={fileInputRef}
-                    accept="image/*"
+                    accept="image/*,.pdf,.txt,.md,.csv,.json,application/pdf,text/plain,text/markdown,text/html,text/csv,application/json"
                     multiple
                     className="hidden"
                     onChange={handleFileSelect}
@@ -1000,8 +1027,8 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
                     className="min-h-[44px] min-w-[44px] h-11 w-11 shrink-0 rounded-full md:h-9 md:w-9 md:min-h-0 md:min-w-0"
                     onClick={() => fileInputRef.current?.click()}
                     disabled={!connected}
-                    title="添加图片"
-                    aria-label="添加图片"
+                    title="添加图片或文档 (PDF、图片、文本等)"
+                    aria-label="添加附件"
                   >
                     <Paperclip className="h-4 w-4" />
                   </Button>
@@ -1054,7 +1081,8 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
               variant="ghost"
               size="sm"
               onClick={() => {
-                setSessionKey(generateSessionId());
+                const newKey = generateSessionId();
+                setSessionKey(newKey);
                 setMessages([]);
                 setToolMessages([]);
                 setStream(null);
@@ -1062,6 +1090,9 @@ export function ChatSection({ initialSessionKey }: { initialSessionKey?: string 
                 runIdRef.current = null;
                 setError(null);
                 setCurrentModel(null);
+                const params = new URLSearchParams(searchParams.toString());
+                params.set("session", newKey);
+                router.replace(`${pathname}?${params.toString()}`, { scroll: false });
               }}
               className="h-8 text-[14px] text-muted-foreground"
             >

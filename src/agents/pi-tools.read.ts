@@ -315,6 +315,7 @@ export function createOpenClawReadTool(base: AnyAgentTool): AnyAgentTool {
                 text: "Path is a directory; cannot read as file. Use a file path or list the directory with another tool.",
               },
             ],
+            details: undefined,
           };
         }
         throw err;

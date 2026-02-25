@@ -47,6 +47,8 @@ export type ChatAttachment = {
   id: string;
   dataUrl: string;
   mimeType: string;
+  /** Optional file name for documents (PDF, text, etc.) */
+  fileName?: string;
 };
 
 export type ChatQueueItem = {

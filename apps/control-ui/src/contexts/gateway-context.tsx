@@ -101,11 +101,17 @@ export function GatewayProvider({
   const [token, setToken] = useState("");
   const [execApprovalQueue, setExecApprovalQueue] = useState<ExecApprovalRequest[]>([]);
 
-  // Restore saved url/token from localStorage on mount (client-only, avoids hydration mismatch).
+  // Restore saved url/token from localStorage on mount; when UI is served by gateway,
+  // use injected token if nothing was saved (so token field auto-shows the correct value).
   useEffect(() => {
     const s = readStoredGateway();
     setUrl(s.url || initialUrl);
-    setToken(s.token);
+    const raw =
+      typeof window !== "undefined"
+        ? (window as unknown as { __OPENCLAW_GATEWAY_TOKEN__?: string }).__OPENCLAW_GATEWAY_TOKEN__
+        : undefined;
+    const injected = typeof raw === "string" ? raw.trim() : "";
+    setToken(s.token || injected);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- run once on mount
   }, []);
   const [execApprovalBusy, setExecApprovalBusy] = useState(false);
@@ -228,7 +234,17 @@ export function GatewayProvider({
       onClose: ({ code, reason }) => {
         setConnected(false);
         setHello(null);
-        if (code !== 1000) setError(reason || `Code ${code}`);
+        if (code !== 1000) {
+          const r = (reason || "").trim();
+          const friendly =
+            r ||
+            (code === 1006
+              ? "Connection error"
+              : code === 1002
+                ? "Protocol error"
+                : undefined);
+          setError(friendly ?? `Code ${code}`);
+        }
       },
       onEvent: (evt) => handleEvent(evt),
     });

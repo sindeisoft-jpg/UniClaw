@@ -3,12 +3,40 @@
 import { useCallback, useEffect, useState } from "react";
 import { useGateway } from "@/contexts/gateway-context";
 
+/** Gateway system-presence returns an array of these (see src/infra/system-presence.ts). */
+type SystemPresenceItem = {
+  host?: string;
+  ip?: string;
+  version?: string;
+  mode?: string;
+  reason?: string;
+  deviceId?: string;
+  instanceId?: string;
+  text?: string;
+  ts?: number;
+};
+
 type PresenceEntry = {
   clientId?: string;
   displayName?: string;
   connected?: boolean;
   mode?: string;
 };
+
+const PRESENCE_TTL_MS = 5 * 60 * 1000;
+
+function toPresenceEntry(p: SystemPresenceItem): PresenceEntry {
+  const clientId = p.host ?? p.deviceId ?? p.instanceId ?? undefined;
+  const displayName = p.text ?? (p.host ? `${p.host}${p.ip ? ` (${p.ip})` : ""}` : undefined);
+  const connected =
+    p.ts != null ? Date.now() - p.ts < PRESENCE_TTL_MS : true;
+  return {
+    clientId,
+    displayName,
+    connected,
+    mode: p.mode ?? (p.reason ? String(p.reason) : undefined),
+  };
+}
 
 export function InstancesSection() {
   const { client, connected } = useGateway();
@@ -21,8 +49,12 @@ export function InstancesSection() {
     setLoading(true);
     setError(null);
     try {
-      const res = await client.request<{ entries?: PresenceEntry[] }>("system-presence", {});
-      setEntries(Array.isArray(res?.entries) ? res.entries : []);
+      const res = await client.request<SystemPresenceItem[] | { entries?: SystemPresenceItem[] }>(
+        "system-presence",
+        {},
+      );
+      const raw = Array.isArray(res) ? res : res?.entries ?? [];
+      setEntries(raw.map(toPresenceEntry));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -44,6 +76,9 @@ export function InstancesSection() {
 
   return (
     <div className="mt-4 space-y-4">
+      <p className="text-sm text-muted-foreground">
+        实例即已连接网关的客户端与节点（如本机网关、Mac 应用、配对设备等）。网关会定期上报自身；其他客户端连接并上报后也会出现在列表中。
+      </p>
       {error && (
         <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}

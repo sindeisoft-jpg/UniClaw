@@ -56,6 +56,9 @@ const CHANNEL_ICONS: Record<ChannelKey, React.ElementType> = {
   nostr: Zap,
 };
 
+/** Fallback icon for extension or unknown channels (e.g. msteams, matrix). */
+const CHANNEL_ICON_FALLBACK = MessageCircle;
+
 const CHANNEL_LABELS: Record<ChannelKey, string> = {
   whatsapp: "WhatsApp",
   telegram: "Telegram",
@@ -286,19 +289,25 @@ export function ChannelsSection({
     return "—";
   };
 
-  const getChannelOrder = (): ChannelKey[] => {
+  /** Treat as informational "need to configure" rather than a real error. */
+  const isNotConfiguredMessage = (msg: string): boolean => {
+    const lower = msg.toLowerCase().trim();
+    return lower === "not configured" || lower === "未配置" || lower.includes("not configured") || lower.includes("未配置");
+  };
+
+  const getChannelOrder = (): (ChannelKey | string)[] => {
     if (snapshot?.channelMeta?.length) {
-      return snapshot.channelMeta.map(entry => entry.id as ChannelKey);
+      return snapshot.channelMeta.map((entry) => entry.id);
     }
     if (snapshot?.channelOrder?.length) {
-      return snapshot.channelOrder as ChannelKey[];
+      return snapshot.channelOrder as (ChannelKey | string)[];
     }
     return ["whatsapp", "telegram", "discord", "googlechat", "slack", "signal", "imessage", "nostr"];
   };
 
-  const getChannelLabel = (key: ChannelKey): string => {
+  const getChannelLabel = (key: ChannelKey | string): string => {
     const meta = snapshot?.channelMeta?.find(entry => entry.id === key);
-    return meta?.label || snapshot?.channelLabels?.[key] || CHANNEL_LABELS[key] || key;
+    return (meta?.label || snapshot?.channelLabels?.[key]) ?? (key in CHANNEL_LABELS ? CHANNEL_LABELS[key as ChannelKey] : key);
   };
 
   const renderAccountCard = (account: ChannelAccountSnapshot) => {
@@ -317,30 +326,36 @@ export function ChannelsSection({
         <div className="space-y-2 text-sm">
           <div className="flex justify-between">
             <span className="text-muted-foreground">运行中</span>
-            <span className={runningStatus === "是" ? "text-green-600" : runningStatus === "活跃" ? "text-amber-600" : "text-red-600"}>
+            <span className={runningStatus === "是" ? "text-green-600" : runningStatus === "活跃" ? "text-amber-600" : "text-muted-foreground"}>
               {runningStatus}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">已配置</span>
-            <span className={account.configured ? "text-green-600" : "text-red-600"}>
+            <span className={account.configured ? "text-green-600" : "text-muted-foreground"}>
               {account.configured ? "是" : "否"}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">已连接</span>
-            <span className={connectedStatus === "是" ? "text-green-600" : connectedStatus === "活跃" ? "text-amber-600" : "text-red-600"}>
+            <span className={connectedStatus === "是" ? "text-green-600" : connectedStatus === "活跃" ? "text-amber-600" : "text-muted-foreground"}>
               {connectedStatus}
             </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">最近入站</span>
-            <span>{account.lastInboundAt ? formatRelativeTimestamp(account.lastInboundAt) : "n/a"}</span>
+            <span className="text-muted-foreground">{account.lastInboundAt ? formatRelativeTimestamp(account.lastInboundAt) : "n/a"}</span>
           </div>
         </div>
 
         {account.lastError && (
-          <div className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
+          <div
+            className={
+              isNotConfiguredMessage(account.lastError)
+                ? "mt-3 rounded border border-border bg-muted/30 p-2 text-xs text-muted-foreground"
+                : "mt-3 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+            }
+          >
             <div className="flex items-start gap-1">
               <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
               <span>{account.lastError}</span>
@@ -351,8 +366,8 @@ export function ChannelsSection({
     );
   };
 
-  const renderChannelCard = (key: ChannelKey) => {
-    const Icon = CHANNEL_ICONS[key];
+  const renderChannelCard = (key: ChannelKey | string) => {
+    const Icon = (key in CHANNEL_ICONS ? CHANNEL_ICONS[key as ChannelKey] : null) ?? CHANNEL_ICON_FALLBACK;
     const label = getChannelLabel(key);
     const accounts = snapshot?.channelAccounts?.[key] || [];
     const channelStatus = snapshot?.channels?.[key] as Record<string, unknown> | undefined;
@@ -390,25 +405,25 @@ export function ChannelsSection({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
               <div className="space-y-0.5">
                 <div className="text-muted-foreground">已配置</div>
-                <div className={configured ? "text-green-600" : "text-red-600"}>
+                <div className={configured ? "text-green-600" : "text-muted-foreground"}>
                   {configured == null ? "n/a" : configured ? "是" : "否"}
                 </div>
               </div>
               <div className="space-y-0.5">
                 <div className="text-muted-foreground">已关联</div>
-                <div className={linked ? "text-green-600" : "text-red-600"}>
+                <div className={linked ? "text-green-600" : "text-muted-foreground"}>
                   {linked == null ? "n/a" : linked ? "是" : "否"}
                 </div>
               </div>
               <div className="space-y-0.5">
                 <div className="text-muted-foreground">运行中</div>
-                <div className={running ? "text-green-600" : "text-red-600"}>
+                <div className={running ? "text-green-600" : "text-muted-foreground"}>
                   {running == null ? "n/a" : running ? "是" : "否"}
                 </div>
               </div>
               <div className="space-y-0.5">
                 <div className="text-muted-foreground">已连接</div>
-                <div className={connected ? "text-green-600" : "text-red-600"}>
+                <div className={connected ? "text-green-600" : "text-muted-foreground"}>
                   {connected == null ? "n/a" : connected ? "是" : "否"}
                 </div>
               </div>
@@ -458,19 +473,19 @@ export function ChannelsSection({
                 <div className="grid grid-cols-3 gap-4 text-sm">
                   <div className="space-y-1">
                     <div className="text-muted-foreground">已配置</div>
-                    <div className={configured ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                    <div className={configured ? "text-green-600 font-medium" : "text-muted-foreground font-medium"}>
                       {configured == null ? "n/a" : configured ? "是" : "否"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-muted-foreground">运行中</div>
-                    <div className={running ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                    <div className={running ? "text-green-600 font-medium" : "text-muted-foreground font-medium"}>
                       {running == null ? "n/a" : running ? "是" : "否"}
                     </div>
                   </div>
                   <div className="space-y-1">
                     <div className="text-muted-foreground">已连接</div>
-                    <div className={connected ? "text-green-600 font-medium" : "text-red-600 font-medium"}>
+                    <div className={connected ? "text-green-600 font-medium" : "text-muted-foreground font-medium"}>
                       {connected == null ? "n/a" : connected ? "是" : "否"}
                     </div>
                   </div>
@@ -481,10 +496,18 @@ export function ChannelsSection({
         )}
 
         {lastError && (
-          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950">
+          <div
+            className={
+              isNotConfiguredMessage(lastError)
+                ? "mt-4 rounded-lg border border-border bg-muted/30 p-4"
+                : "mt-4 rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950"
+            }
+          >
             <div className="flex items-start gap-2">
-              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
-              <div className="text-sm text-red-800 dark:text-red-300">{lastError}</div>
+              <AlertCircle className={`h-5 w-5 mt-0.5 shrink-0 ${isNotConfiguredMessage(lastError) ? "text-muted-foreground" : "text-red-600 dark:text-red-400"}`} />
+              <div className={isNotConfiguredMessage(lastError) ? "text-sm text-muted-foreground" : "text-sm text-red-800 dark:text-red-300"}>
+                {lastError}
+              </div>
             </div>
           </div>
         )}

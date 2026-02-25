@@ -224,6 +224,9 @@ export function OverviewSection({
               type="text"
               value={heroInput}
               onChange={(e) => setHeroInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && e.nativeEvent.isComposing) e.preventDefault();
+              }}
               placeholder="问点什么…"
               className="kimi-hero-input h-14 w-full rounded-2xl border-0 bg-transparent px-5 py-3 text-base text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-0 sm:h-16 sm:text-lg"
               aria-label="输入问题或跳转到聊天"

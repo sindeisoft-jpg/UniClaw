@@ -175,6 +175,23 @@ describe("agents.create", () => {
     );
   });
 
+  it("creates agent with fallback id when name normalizes to main (e.g. Chinese name)", async () => {
+    const { respond, promise } = makeCall("agents.create", {
+      name: "客服助手",
+      workspace: "/tmp/ws",
+    });
+    await promise;
+
+    expect(respond).toHaveBeenCalledWith(true, expect.anything(), undefined);
+    expect(mocks.applyAgentConfig).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        name: "客服助手",
+        agentId: expect.stringMatching(/^agent-[a-f0-9]{16}$/),
+      }),
+    );
+  });
+
   it("rejects creating a duplicate agent", async () => {
     mocks.findAgentEntryIndex.mockReturnValue(0);
 

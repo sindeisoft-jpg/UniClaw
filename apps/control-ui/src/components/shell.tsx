@@ -8,6 +8,22 @@ import { useGateway } from "@/contexts/gateway-context";
 import { ChatHeaderSlotProvider } from "@/contexts/chat-header-slot";
 import { Sun, Moon, Menu, X } from "lucide-react";
 import {
+  MessageCircle,
+  LayoutDashboard,
+  Link2,
+  Radio,
+  ScrollText,
+  BarChart2,
+  CalendarClock,
+  Bot,
+  Zap,
+  Server,
+  Settings,
+  Bug,
+  FileText,
+  BookOpen,
+} from "lucide-react";
+import {
   OverviewSection,
   ChatSection,
   ChannelsSection,
@@ -25,37 +41,6 @@ import {
 import { ExecApprovalOverlay } from "./exec-approval-overlay";
 import { GatewayUrlConfirmationOverlay } from "./gateway-url-confirmation-overlay";
 
-const NAV_GROUPS = [
-  { label: "聊天", items: [{ id: "chat", label: "聊天" }] },
-  {
-    label: "控制",
-    items: [
-      { id: "overview", label: "概览" },
-      { id: "channels", label: "渠道" },
-      { id: "instances", label: "实例" },
-      { id: "sessions", label: "会话" },
-      { id: "usage", label: "用量" },
-      { id: "cron", label: "定时任务" },
-    ],
-  },
-  {
-    label: "智能体",
-    items: [
-      { id: "agents", label: "智能体" },
-      { id: "skills", label: "技能" },
-      { id: "nodes", label: "节点" },
-    ],
-  },
-  {
-    label: "设置",
-    items: [
-      { id: "config", label: "配置" },
-      { id: "debug", label: "调试" },
-      { id: "logs", label: "日志" },
-    ],
-  },
-] as const;
-
 type SectionId =
   | "overview"
   | "chat"
@@ -70,6 +55,60 @@ type SectionId =
   | "config"
   | "debug"
   | "logs";
+
+const SECTION_ICONS: Record<SectionId, React.ComponentType<{ className?: string }>> = {
+  overview: LayoutDashboard,
+  chat: MessageCircle,
+  channels: Link2,
+  instances: Radio,
+  sessions: ScrollText,
+  usage: BarChart2,
+  cron: CalendarClock,
+  agents: Bot,
+  skills: Zap,
+  nodes: Server,
+  config: Settings,
+  debug: Bug,
+  logs: FileText,
+};
+
+const NAV_GROUPS: {
+  label: string;
+  labelEn: string;
+  items: { id: SectionId; label: string; labelEn: string }[];
+}[] = [
+  { label: "聊天", labelEn: "Chat", items: [{ id: "chat", label: "聊天", labelEn: "Chat" }] },
+  {
+    label: "控制",
+    labelEn: "Control",
+    items: [
+      { id: "overview", label: "概览", labelEn: "Overview" },
+      { id: "channels", label: "渠道", labelEn: "Channels" },
+      { id: "instances", label: "实例", labelEn: "Instances" },
+      { id: "sessions", label: "会话", labelEn: "Sessions" },
+      { id: "usage", label: "用量", labelEn: "Usage" },
+      { id: "cron", label: "定时任务", labelEn: "Cron Jobs" },
+    ],
+  },
+  {
+    label: "智能体",
+    labelEn: "Agent",
+    items: [
+      { id: "agents", label: "智能体", labelEn: "Agents" },
+      { id: "skills", label: "技能", labelEn: "Skills" },
+      { id: "nodes", label: "节点", labelEn: "Nodes" },
+    ],
+  },
+  {
+    label: "设置",
+    labelEn: "Settings",
+    items: [
+      { id: "config", label: "配置", labelEn: "Config" },
+      { id: "debug", label: "调试", labelEn: "Debug" },
+      { id: "logs", label: "日志", labelEn: "Logs" },
+    ],
+  },
+];
 
 const SECTION_LABELS: Record<SectionId, string> = {
   overview: "概览",
@@ -126,17 +165,34 @@ function errorHint(message: string): string | null {
   if (lower.includes("secure context")) {
     return "请使用 HTTPS 或 localhost 打开本页。";
   }
+  if (
+    lower.includes("connection error") ||
+    lower.includes("code 1006") ||
+    lower.startsWith("closed:")
+  ) {
+    return "请确认网关已启动（openclaw gateway run），且地址正确（默认 ws://127.0.0.1:18789）。若通过 Mac 应用使用，请从应用内启动网关。";
+  }
   return null;
 }
+
+type OverviewStats = {
+  presenceCount: number;
+  sessionsCount: number | null;
+  cronEnabled: boolean | null;
+  cronNext: number | null;
+  lastChannelsRefresh: number | null;
+};
 
 function SectionContent({
   section,
   setSection,
   initialSessionKeyFromUrl,
+  overviewStats,
 }: {
   section: SectionId;
   setSection: (id: SectionId) => void;
   initialSessionKeyFromUrl: string | null;
+  overviewStats: OverviewStats;
 }) {
   const gateway = useGateway();
   switch (section) {
@@ -150,13 +206,13 @@ function SectionContent({
           onTokenChange={gateway.setToken}
           onSaveCredentials={gateway.persistGatewayCredentials}
           connected={gateway.connected}
-          connecting={false} // 暂时设为 false，后续可以添加连接状态
+          connecting={false}
           lastError={gateway.error}
-          presenceCount={0} // 暂时设为 0
-          sessionsCount={null}
-          cronEnabled={null}
-          cronNext={null}
-          lastChannelsRefresh={null}
+          presenceCount={overviewStats.presenceCount}
+          sessionsCount={overviewStats.sessionsCount}
+          cronEnabled={overviewStats.cronEnabled}
+          cronNext={overviewStats.cronNext}
+          lastChannelsRefresh={overviewStats.lastChannelsRefresh}
           onPasswordChange={() => {}}
           onSessionKeyChange={() => {}}
           onRefresh={gateway.reconnect}
@@ -196,7 +252,61 @@ function SectionContent({
 export function Shell() {
   const searchParams = useSearchParams();
   const urlSession = searchParams.get("session");
-  const { connected, error, url, token, setUrl, setToken, reconnect } = useGateway();
+  const { client, connected, error, url, token, setUrl, setToken, reconnect } = useGateway();
+  const [overviewStats, setOverviewStats] = useState<OverviewStats>({
+    presenceCount: 0,
+    sessionsCount: null,
+    cronEnabled: null,
+    cronNext: null,
+    lastChannelsRefresh: null,
+  });
+  useEffect(() => {
+    if (!client || !connected) {
+      setOverviewStats((s) => ({
+        ...s,
+        presenceCount: 0,
+        sessionsCount: null,
+        cronEnabled: null,
+        cronNext: null,
+        lastChannelsRefresh: null,
+      }));
+      return;
+    }
+    let cancelled = false;
+    Promise.all([
+      client.request<unknown[] | { entries?: unknown[] }>("system-presence", {}).then((res) => {
+        const arr = Array.isArray(res) ? res : res?.entries ?? [];
+        return arr.length;
+      }),
+      client
+        .request<{ count?: number }>("sessions.list", {})
+        .then((res) => res?.count ?? null),
+      client
+        .request<{ enabled?: boolean; nextWakeAtMs?: number | null }>("cron.status", {})
+        .then((res) => ({
+          enabled: res?.enabled ?? null,
+          nextWakeAtMs: res?.nextWakeAtMs ?? null,
+        })),
+    ])
+      .then(([presenceCount, sessionsCount, cron]) => {
+        if (cancelled) return;
+        setOverviewStats({
+          presenceCount: typeof presenceCount === "number" ? presenceCount : 0,
+          sessionsCount,
+          cronEnabled: cron.enabled,
+          cronNext: cron.nextWakeAtMs,
+          lastChannelsRefresh: null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOverviewStats((s) => ({ ...s, presenceCount: 0, sessionsCount: null }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [client, connected]);
   // Open chat on first paint when URL has ?session=... so conversation mode works immediately.
   const [section, setSection] = useState<SectionId>(() =>
     urlSession?.trim() ? "chat" : "overview",
@@ -219,43 +329,84 @@ export function Shell() {
 
   const navContent = (
     <>
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4 md:justify-start">
-        <span className="font-semibold text-foreground">OpenClaw</span>
+      <div className="relative flex h-14 shrink-0 flex-col justify-center border-b border-border px-4 py-2">
+        <div className="flex items-center gap-2.5 pr-12 md:pr-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Bot className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-xs font-bold uppercase tracking-tight text-foreground">
+              OpenClaw
+            </div>
+            <div className="truncate text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              Gateway Dashboard
+            </div>
+          </div>
+        </div>
         <button
           type="button"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground md:hidden"
+          className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-accent-foreground md:hidden"
           onClick={closeSidebar}
           aria-label="关闭菜单"
         >
-          <X className="h-5 w-5" />
+          <X className="h-4 w-4" />
         </button>
       </div>
-      <nav className="flex-1 space-y-1 overflow-auto p-3 overscroll-contain">
+      <nav className="flex-1 space-y-5 overflow-auto p-3 overscroll-contain">
         {NAV_GROUPS.map((group) => (
           <div key={group.label}>
-            <div className="px-3 py-2 text-xs font-medium text-muted-foreground">
-              {group.label}
+            <div className="mb-1.5 flex items-center gap-1.5 px-2 py-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.labelEn} {group.label}
+              </span>
             </div>
-            <div className="mt-0.5 space-y-0.5">
-              {group.items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => goTo(item.id)}
-                  className={cn(
-                    "flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors",
-                    "hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
-                    section === item.id
-                      ? "bg-primary/15 text-primary"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = SECTION_ICONS[item.id];
+                const isActive = section === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => goTo(item.id)}
+                    className={cn(
+                      "flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors",
+                      "hover:bg-accent hover:text-accent-foreground active:bg-accent/80",
+                      isActive
+                        ? "border-l-[3px] border-primary bg-primary/10 text-primary"
+                        : "border-l-[3px] border-transparent text-muted-foreground"
+                    )}
+                  >
+                    {Icon && (
+                      <Icon
+                        className={cn(
+                          "h-[18px] w-[18px] shrink-0",
+                          isActive ? "text-primary" : "text-muted-foreground"
+                        )}
+                      />
+                    )}
+                    <span className="truncate">
+                      {item.labelEn} {item.label}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         ))}
+        <div>
+          <div className="mb-1.5 flex items-center gap-1.5 px-2 py-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Resources 资源
+            </span>
+          </div>
+          <div className="space-y-0.5">
+            <span className="flex min-h-[44px] w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium text-muted-foreground">
+              <BookOpen className="h-[18px] w-[18px] shrink-0" />
+              <span className="truncate">Docs 文档</span>
+            </span>
+          </div>
+        </div>
       </nav>
     </>
   );
@@ -327,6 +478,7 @@ export function Shell() {
               section={section}
               setSection={setSection}
               initialSessionKeyFromUrl={urlSession}
+              overviewStats={overviewStats}
             />
           ) : (
             <>
@@ -343,6 +495,7 @@ export function Shell() {
                   section={section}
                   setSection={setSection}
                   initialSessionKeyFromUrl={urlSession}
+                  overviewStats={overviewStats}
                 />
               ) : (
                 <div className="rounded-xl border border-border bg-card p-4 shadow-sm ring-0 md:p-6">
@@ -354,6 +507,7 @@ export function Shell() {
                     section={section}
                     setSection={setSection}
                     initialSessionKeyFromUrl={urlSession}
+                    overviewStats={overviewStats}
                   />
                 </div>
               )}

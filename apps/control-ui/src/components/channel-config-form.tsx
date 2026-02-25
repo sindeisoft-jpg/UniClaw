@@ -221,57 +221,68 @@ export function ChannelConfigForm({
   disabled: boolean;
   onPatch: (path: (string | number)[], value: unknown) => void;
 }) {
-  const analysis = analyzeConfigSchema(schema);
-  const root = analysis.schema;
-  const node = root ? resolveSchemaNode(root, ["channels", channelId]) : null;
-  const configValue = configForm ?? {};
-  const value = resolveChannelValue(configValue, channelId);
+  try {
+    const analysis = analyzeConfigSchema(schema);
+    const root = analysis.schema;
+    const node = root ? resolveSchemaNode(root, ["channels", channelId]) : null;
+    const configValue = configForm ?? {};
+    const value = resolveChannelValue(configValue, channelId);
 
-  if (!root) {
+    if (!root) {
+      return (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          配置结构不可用，请使用配置页原始编辑。
+        </div>
+      );
+    }
+
+    if (!node) {
+      return (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          渠道配置结构不可用。
+        </div>
+      );
+    }
+
+    const type = schemaType(node);
+    if (type !== "object" || !node.properties) {
+      return (
+        <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          配置结构不可用，请使用配置页原始编辑。
+        </div>
+      );
+    }
+
+    const props = node.properties;
+    const obj =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? value
+        : {};
+    const entries = Object.entries(props)
+      .filter(([, subSchema]) => subSchema && typeof subSchema === "object")
+      .sort((a, b) => a[0].localeCompare(b[0]));
+
+    return (
+      <div className="space-y-4">
+        {entries.map(([propKey, subSchema]) => (
+          <ConfigField
+            key={propKey}
+            schema={subSchema as JsonSchema}
+            value={obj[propKey]}
+            path={["channels", channelId, propKey]}
+            hints={uiHints}
+            disabled={disabled}
+            onPatch={onPatch}
+          />
+        ))}
+      </div>
+    );
+  } catch (err) {
+    console.error("ChannelConfigForm error:", err);
     return (
       <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        配置结构不可用，请使用配置页原始编辑。
+        配置结构不可用，请使用配置页原始编辑。若问题持续，请查看控制台。
       </div>
     );
   }
-
-  if (!node) {
-    return (
-      <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        渠道配置结构不可用。
-      </div>
-    );
-  }
-
-  const type = schemaType(node);
-  if (type !== "object" || !node.properties) {
-    return (
-      <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-        配置结构不可用，请使用配置页原始编辑。
-      </div>
-    );
-  }
-
-  const props = node.properties;
-  const obj =
-    value && typeof value === "object" && !Array.isArray(value)
-      ? value
-      : {};
-  const entries = Object.entries(props).sort((a, b) => a[0].localeCompare(b[0]));
-
-  return (
-    <div className="space-y-4">
-      {entries.map(([propKey, subSchema]) => (
-        <ConfigField
-          key={propKey}
-          schema={subSchema}
-          value={obj[propKey]}
-          path={["channels", channelId, propKey]}
-          hints={uiHints}
-          disabled={disabled}
-          onPatch={onPatch}
-        />
-      ))}
-    </div>
-  );
 }
